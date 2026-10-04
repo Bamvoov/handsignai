@@ -240,9 +240,12 @@
 
                 <!-- Video Feed Column -->
                 <div class="col-md-12 col-lg-6" style="margin-top: 8rem !important;">
-                    <img src="{{ url_for('video_feed') }}" class="img-fluid w-100 h-100 bg-secondary rounded"
+                    <img id="video-feed" class="img-fluid w-100 h-100 bg-secondary rounded"
                         alt="Video Feed"
                         style="width: 100%; height: 100%; border-radius: 10px; border: 2px solid #000;" />
+                    <!-- Hidden video and canvas for capturing webcam frames -->
+                    <video id="webcam" autoplay playsinline style="display: none;"></video>
+                    <canvas id="canvas" style="display: none;"></canvas>
                     <!-- Controls -->
                     <div class="controls d-flex align-items-center mt-3">
                         <input type="text" id="translatedText" class="form-control me-2"
@@ -401,6 +404,46 @@
     <script src="https://cdn.socket.io/4.0.1/socket.io.min.js"></script>
     <script>
         const socket = io();
+
+        const video = document.getElementById('webcam');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const videoFeed = document.getElementById('video-feed');
+
+        // Start webcam
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+            navigator.mediaDevices.getUserMedia({ video: true }).then(function(stream) {
+                video.srcObject = stream;
+            }).catch(function(err) {
+                console.error("Error accessing webcam: ", err);
+                alert("Could not access your webcam. Please allow camera permissions.");
+            });
+        } else {
+            alert("Your browser does not support webcam access.");
+        }
+
+        // When video starts playing, send frames to backend
+        video.addEventListener('play', function() {
+            canvas.width = video.videoWidth || 640;
+            canvas.height = video.videoHeight || 480;
+            
+            setInterval(() => {
+                if (video.paused || video.ended) return;
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                // Draw current video frame to canvas
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                // Convert to base64 jpeg
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.5); 
+                // Send to backend via Socket.IO
+                socket.emit('image', dataUrl);
+            }, 150); // ~6-7 FPS to avoid overloading the backend
+        });
+
+        // Receive processed image from backend
+        socket.on('processed_image', function(dataUrl) {
+            videoFeed.src = dataUrl;
+        });
 
         // Update the translatedText input with the prediction
         socket.on('prediction', function (data) {
